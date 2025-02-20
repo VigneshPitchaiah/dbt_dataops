@@ -7,17 +7,22 @@
     Try changing "table" to "view" below
 */
 
-{{ config(materialized='table') }}
+{{ config(materialized='table',
+tags=['example_1']
+
+) }}
 
 with source_data as (
-
     select 1 as id
     union all
     select null as id
-
 )
 
-select *
+select 
+    id,
+    'value_1' as column_1,
+    'value_2' as column_2,
+    'value_3' as column_3
 from source_data
 
 /*
