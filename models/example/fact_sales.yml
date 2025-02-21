@@ -1,0 +1,28 @@
+
+version: 2
+
+models:
+  - name: fact_sales
+    description: "A starter dbt model"
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - id
+            - column_4
+      - dbt_expectations.expect_table_columns_to_match_ordered_list:
+          column_list: ["COLUMN_1", "COLUMN_2"]
+          transform: upper
+    columns:
+      - name: id
+        description: "The primary key for this table"
+      - name: column_1
+        description: "The first column in this table"
+        data_tests:
+          - dbt_utils.not_accepted_values:
+              values: ['value_1']
+      - name: column_2
+        description: "The second column in this table"
+        data_tests:
+          - not_null
+        config: 
+            severity: error | warn

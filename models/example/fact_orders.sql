@@ -8,7 +8,7 @@
 */
 
 {{ config(materialized='table',
-tags=['example_1']
+tags=['fact_orders']
 
 ) }}
 

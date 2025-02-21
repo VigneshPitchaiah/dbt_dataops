@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: markets
+    description: "A starter dbt model"
+    columns:
+      - name: column_1
+        description: "The second column in this table"

@@ -80,67 +80,35 @@
           {%- set model_info = process_refs(names_list, is_src=false, schemas=node_schemas) -%}
           {%- set source_info = process_refs(result.node.sources, is_src=true, schemas=node_schemas) -%}
 
-          {# Enhanced logic for determining test level and column details using column_name #}
+          {# Enhanced logic for determining test level and column details #}
           {%- set test_level = 'table' -%}
           {%- set column_details = '' -%}
-
-          {# Debug logging #}
-          {% do log("Test name: " ~ test_name, info=True) %}
-          {% do log("Test type: " ~ test_type, info=True) %}
-          {% do log("Column name: " ~ result.node.column_name, info=True) %}
-
-          {# First check if column_name exists in the test node #}
-          {%- if result.node.column_name is not none -%}
-            {%- set test_level = 'column' -%}
-            {%- set column_details = result.node.column_name -%}
-          
-          {# Fallback to previous logic if column_name is None #}
-          {%- else -%}
-            {# Handle schema.yaml generic tests #}
-            {%- if result.node.test_metadata is defined -%}
-              {# Check if test has column field in kwargs #}
+          {%- if result.node.test_metadata is defined -%}
+            {%- if result.node.test_metadata.kwargs is defined -%}
               {%- if result.node.test_metadata.kwargs.column is defined -%}
                 {%- set test_level = 'column' -%}
                 {%- set column_details = result.node.test_metadata.kwargs.column -%}
-              {# Check if test has columns field in kwargs (for multi-column tests) #}
-              {%- elif result.node.test_metadata.kwargs.columns is defined -%}
+              {%- endif -%}
+              {%- if result.node.test_metadata.kwargs.columns is defined -%}
                 {%- set test_level = 'column' -%}
                 {%- set column_details = result.node.test_metadata.kwargs.columns | join(',') -%}
-              {# Handle relationship tests #}
-              {%- elif result.node.test_metadata.name == 'relationships' -%}
-                {%- set test_level = 'column' -%}
-                {%- set column_details = result.node.test_metadata.kwargs.field ~ ',' ~ result.node.test_metadata.kwargs.to -%}
-              {%- else -%}
-                {# For other generic tests without explicit column info, try to extract from name #}
-                {%- if result.node.name is string and '_by_' in result.node.name -%}
-                  {%- set test_level = 'column' -%}
-                  {%- set column_details = result.node.name.split('_by_')[1] -%}
-                {%- endif -%}
+              {%- endif -%}
+              {%- if result.node.test_metadata.name == 'accepted_values' -%}
+                {%- set column_details = column_details ~ ':[' ~ 
+                                       result.node.test_metadata.kwargs.values | join(',') ~ ']' -%}
+              {%- endif -%}
+              {%- if result.node.test_metadata.name == 'relationships' -%}
+                {%- set column_details = column_details ~ ' -> ' ~ 
+                                       result.node.test_metadata.kwargs.to ~ '.' ~
+                                       result.node.test_metadata.kwargs.field -%}
               {%- endif -%}
             {%- endif -%}
+          {%- else -%}
+            {%- if result.node.config is defined and result.node.config.meta is defined -%}
+              {%- set test_level = 'column' -%}
+              {%- set column_details = result.node.config.meta.columns | join(',') -%}
+            {%- endif -%}
           {%- endif -%}
-
-          {# Extract rule_level from config meta #}
-          {%- set rule_level = result.node.config.meta.rule_level if result.node.config.meta is defined and result.node.config.meta.rule_level is defined else 'Medium' -%}
-          
-          {# Add rule_level to debug logging #}
-          {% do log("Rule Level: " ~ rule_level, info=True) %}
-
-          {# Add detailed debug logging for test result metadata #}
-          {% do log("=================== Test Result Debug Info ===================", info=True) %}
-          {% do log("Test Full Node: " ~ result.node, info=True) %}
-          {% do log("Test Name: " ~ result.node.name, info=True) %}
-          {% do log("Resource Type: " ~ result.node.resource_type, info=True) %}
-          {% do log("Test Status: " ~ result.status, info=True) %}
-          {% do log("Execution Time: " ~ result.execution_time, info=True) %}
-          {% do log("Test Metadata: " ~ result.node.test_metadata, info=True) %}
-          {% do log("Column Name: " ~ result.node.column_name, info=True) %}
-          {% do log("Config: " ~ result.node.config, info=True) %}
-          {% do log("Original File Path: " ~ result.node.original_file_path, info=True) %}
-          {% do log("Compiled SQL: " ~ result.node.compiled_code, info=True) %}
-          {% do log("References: " ~ result.node.refs, info=True) %}
-          {% do log("Sources: " ~ result.node.sources, info=True) %}
-          {% do log("========================================================", info=True) %}
 
           select
             {{ dbt_utils.generate_surrogate_key(["'" ~ test_name ~ "'", "current_time"]) }} as test_sk,
@@ -153,7 +121,6 @@
             split_part('{{ model_info }}', '.', 1)::varchar(255) as model_schema,
             split_part('{{ model_info }}', '.', 2)::varchar(255) as model_table,
             '{{ source_info }}'::varchar(10000) as source_refs,
-            '{{ rule_level }}'::varchar(50) as rule_level,
             '{{ result.node.config.severity }}'::varchar(250) as test_severity_config,
             '{{ result.execution_time }}'::text as execution_time_seconds,
             '{{ result.status }}'::varchar(125) as test_result,
@@ -180,7 +147,7 @@
       insert (
         test_sk, test_name, test_name_long, test_type, test_level, 
         column_details, model_refs, model_schema, model_table, source_refs,
-        rule_level, test_severity_config, execution_time_seconds, test_result, 
+        test_severity_config, execution_time_seconds, test_result, 
         file_test_defined, compiled_sql, TIMESTAMP, is_active, 
         deactivated_timestamp
       )
@@ -188,64 +155,42 @@
         source.test_sk, source.test_name, source.test_name_long, 
         source.test_type, source.test_level, source.column_details,
         source.model_refs, source.model_schema, source.model_table,
-        source.source_refs, source.rule_level, source.test_severity_config,
+        source.source_refs, source.test_severity_config,
         source.execution_time_seconds, source.test_result, 
         source.file_test_defined, source.compiled_sql, source.TIMESTAMP,
         'Y', null
       );
 
-    -- Get current models and tests being tested
+    -- Get current models being tested
     {% set current_models_query %}
-      select distinct 
-        model_name,
-        test_name,
-        test_path,
-        test_type
-      from (
-        with current_models as (
-          {%- for result in test_results -%}
-            {%- set names_list = [] -%}
-            {%- for ref in result.node.refs -%}
-              {%- do names_list.append([ref.name]) -%}
-            {%- endfor -%}
-            select 
-              '{{ process_refs(names_list, is_src=false, schemas=node_schemas) }}' as model_refs,
-              '{{ result.node.name }}' as test_name,
-              '{{ result.node.original_file_path }}' as test_path,
-              '{{ 'generic' if result.node.test_metadata is defined else 'singular' }}' as test_type
-            {{ "union all " if not loop.last }}
+      with current_models as (
+        {%- for result in test_results -%}
+          {%- set names_list = [] -%}
+          {%- for ref in result.node.refs -%}
+            {%- do names_list.append([ref.name]) -%}
           {%- endfor -%}
-        )
-        select 
-          value::varchar as model_name,
-          test_name,
-          test_path,
-          test_type
+          select '{{ process_refs(names_list, is_src=false, schemas=node_schemas) }}' as model_refs
+          {{ "union all " if not loop.last }}
+        {%- endfor -%}
+      ),
+      split_models as (
+        select distinct value as model_name
         from current_models,
         lateral flatten(input => split(model_refs, ','))
         where model_refs != ''
       )
+      select * from split_models
     {% endset %}
 
-    -- Enhanced deactivation logic with better singular test handling
+    -- Handle deactivation of removed tests, but only for models currently being tested
     update {{ central_tbl }}
     set is_active = 'N',
         deactivated_timestamp = convert_timezone('America/New_York', current_timestamp::timestamp_ntz)
     where is_active = 'Y'
-    and (
-      exists (
-        select 1 
-        from ({{ current_models_query }}) as cm
-        where (
-          -- For generic tests, check model references
-          ({{ central_tbl }}.test_type = 'generic' 
-           and {{ central_tbl }}.model_refs like '%' || cm.model_name || '%')
-          -- For singular tests, check test name and path
-          or ({{ central_tbl }}.test_type = 'singular' 
-              and {{ central_tbl }}.test_name = cm.test_name
-              and {{ central_tbl }}.file_test_defined = cm.test_path)
-        )
-      )
+    and exists (
+      select 1 
+      from ({{ current_models_query }}) as current_models
+      where {{ central_tbl }}.model_refs like '%' || current_models.model_name || '%'
     )
     and not exists (
       select 1 
@@ -269,67 +214,35 @@
           {%- set model_info = process_refs(names_list, is_src=false, schemas=node_schemas) -%}
           {%- set source_info = process_refs(result.node.sources, is_src=true, schemas=node_schemas) -%}
 
-          {# Enhanced logic for determining test level and column details using column_name #}
+          {# Enhanced logic for determining test level and column details #}
           {%- set test_level = 'table' -%}
           {%- set column_details = '' -%}
-
-          {# Debug logging #}
-          {% do log("Test name: " ~ test_name, info=True) %}
-          {% do log("Test type: " ~ test_type, info=True) %}
-          {% do log("Column name: " ~ result.node.column_name, info=True) %}
-
-          {# First check if column_name exists in the test node #}
-          {%- if result.node.column_name is not none -%}
-            {%- set test_level = 'column' -%}
-            {%- set column_details = result.node.column_name -%}
-          
-          {# Fallback to previous logic if column_name is None #}
-          {%- else -%}
-            {# Handle schema.yaml generic tests #}
-            {%- if result.node.test_metadata is defined -%}
-              {# Check if test has column field in kwargs #}
+          {%- if result.node.test_metadata is defined -%}
+            {%- if result.node.test_metadata.kwargs is defined -%}
               {%- if result.node.test_metadata.kwargs.column is defined -%}
                 {%- set test_level = 'column' -%}
                 {%- set column_details = result.node.test_metadata.kwargs.column -%}
-              {# Check if test has columns field in kwargs (for multi-column tests) #}
-              {%- elif result.node.test_metadata.kwargs.columns is defined -%}
+              {%- endif -%}
+              {%- if result.node.test_metadata.kwargs.columns is defined -%}
                 {%- set test_level = 'column' -%}
                 {%- set column_details = result.node.test_metadata.kwargs.columns | join(',') -%}
-              {# Handle relationship tests #}
-              {%- elif result.node.test_metadata.name == 'relationships' -%}
-                {%- set test_level = 'column' -%}
-                {%- set column_details = result.node.test_metadata.kwargs.field ~ ',' ~ result.node.test_metadata.kwargs.to -%}
-              {%- else -%}
-                {# For other generic tests without explicit column info, try to extract from name #}
-                {%- if result.node.name is string and '_by_' in result.node.name -%}
-                  {%- set test_level = 'column' -%}
-                  {%- set column_details = result.node.name.split('_by_')[1] -%}
-                {%- endif -%}
+              {%- endif -%}
+              {%- if result.node.test_metadata.name == 'accepted_values' -%}
+                {%- set column_details = column_details ~ ':[' ~ 
+                                       result.node.test_metadata.kwargs.values | join(',') ~ ']' -%}
+              {%- endif -%}
+              {%- if result.node.test_metadata.name == 'relationships' -%}
+                {%- set column_details = column_details ~ ' -> ' ~ 
+                                       result.node.test_metadata.kwargs.to ~ '.' ~
+                                       result.node.test_metadata.kwargs.field -%}
               {%- endif -%}
             {%- endif -%}
+          {%- else -%}
+            {%- if result.node.config is defined and result.node.config.meta is defined -%}
+              {%- set test_level = 'column' -%}
+              {%- set column_details = result.node.config.meta.columns | join(',') -%}
+            {%- endif -%}
           {%- endif -%}
-
-          {# Extract rule_level from config meta #}
-          {%- set rule_level = result.node.config.meta.rule_level if result.node.config.meta is defined and result.node.config.meta.rule_level is defined else 'Low' -%}
-          
-          {# Add rule_level to debug logging #}
-          {% do log("Rule Level: " ~ rule_level, info=True) %}
-
-          {# Add detailed debug logging for test result metadata #}
-          {% do log("=================== Test Result Debug Info ===================", info=True) %}
-          {% do log("Test Full Node: " ~ result.node, info=True) %}
-          {% do log("Test Name: " ~ result.node.name, info=True) %}
-          {% do log("Resource Type: " ~ result.node.resource_type, info=True) %}
-          {% do log("Test Status: " ~ result.status, info=True) %}
-          {% do log("Execution Time: " ~ result.execution_time, info=True) %}
-          {% do log("Test Metadata: " ~ result.node.test_metadata, info=True) %}
-          {% do log("Column Name: " ~ result.node.column_name, info=True) %}
-          {% do log("Config: " ~ result.node.config, info=True) %}
-          {% do log("Original File Path: " ~ result.node.original_file_path, info=True) %}
-          {% do log("Compiled SQL: " ~ result.node.compiled_code, info=True) %}
-          {% do log("References: " ~ result.node.refs, info=True) %}
-          {% do log("Sources: " ~ result.node.sources, info=True) %}
-          {% do log("========================================================", info=True) %}
 
           select
             {{ dbt_utils.generate_surrogate_key(["'" ~ test_name ~ "'", "current_time"]) }} as test_sk,
@@ -342,7 +255,6 @@
             split_part('{{ model_info }}', '.', 1)::varchar(255) as model_schema,
             split_part('{{ model_info }}', '.', 2)::varchar(255) as model_table,
             '{{ source_info }}'::varchar(10000) as source_refs,
-            '{{ rule_level }}'::varchar(50) as rule_level,
             '{{ result.node.config.severity }}'::varchar(250) as test_severity_config,
             '{{ result.execution_time }}'::text as execution_time_seconds,
             '{{ result.status }}'::varchar(125) as test_result,

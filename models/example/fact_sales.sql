@@ -1,9 +1,9 @@
 
 -- Use the `ref` function to select from other models
 {{ config(materialized='table',
-tags=['example_2']
+tags=['fact_sales']
 
 ) }}
-select *
-from {{ ref('my_first_dbt_model') }}
+select *, 'value_4' as column_4
+from {{ ref('fact_orders') }}
 where id = 1

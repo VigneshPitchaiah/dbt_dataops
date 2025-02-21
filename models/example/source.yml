@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: marketing
+    database: dev_dwdb  
+    schema: marketing  
+    tables:
+      - name: fact_sales
+      - name: customers
